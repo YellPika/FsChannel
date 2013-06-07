@@ -6,8 +6,8 @@ An implementation of Go style fibers and channels in FSharp.
 
 Fibers (cooperative threads) are created using the `fiber`
 computation expression syntax.
-* `yield ()` is used to give control to the next available fiber.
-* `yield! f` is used to start `f` as a new fiber.
+* `yield ()` pauses the current fiber gives control to the next available fiber.
+* `yield! f` concurrently starts the fiber `f`.
 * `Fiber.Run : Fiber<unit> -> unit` runs a fiber and does not return until that fiber completes execution.
 Like in Go, any fiber started using `yield!` will terminate when the main one terminates.
 
