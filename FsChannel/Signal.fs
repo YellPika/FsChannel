@@ -5,6 +5,8 @@ open System
 /// An abstract representation of a synchronous operation.
 [<NoComparison; NoEquality>]
 type Signal<'a> = {
+    /// Registers a function to be invoked when the signal is activated.
+    /// A disposable object is returned, which may be used to cancel the registration.
     Connect : ('a -> unit) -> Fiber<IDisposable>
 }
 
@@ -38,18 +40,24 @@ module Signal =
         let connection1 = ref (Disposable.Create id)
         let connection2 = ref (Disposable.Create id)
 
-        let isSignalled = ref false
-        let! connection1' = signal1.Connect <| fun x ->
-            isSignalled := true
-            (!connection2).Dispose ()
-            f x
-        connection1 := connection1'
+        let ignoreSecond = ref false
 
-        if not !isSignalled then
-            let! connection2' = signal2.Connect <| fun x ->
+        // Need to store the result in temp because we can't directly
+        // assign to a reference cell using let!.
+        let! temp = signal1.Connect (fun x ->
+            // Connecting to signal1 could cause this callback to trigger
+            // immediately, in which case we can forgo connecting to the second.
+            ignoreSecond := true
+
+            (!connection2).Dispose ()
+            f x)
+        connection1 := temp
+
+        if not !ignoreSecond then
+            let! temp = signal2.Connect (fun x ->
                 (!connection1).Dispose ()
-                f x
-            connection2 := connection2'
+                f x)
+            connection2 := temp
 
         return Disposable.Create (fun () ->
             (!connection1).Dispose ()
@@ -67,9 +75,12 @@ module Signal =
 
         yield! fiber {
             do! Fiber.Wait span
+
+            // If the user cancelled the connection before
+            // span elapsed, then we can ignore this.
             if not !cancel then
-                let! connection' = Connect f x
-                connection := connection'
+                let! temp = Connect f x
+                connection := temp
         }
 
         return Disposable.Create (fun () -> (!connection).Dispose ())        
