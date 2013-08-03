@@ -63,7 +63,7 @@ module Signal =
     /// Delays the communication of a signal by the specified time span.
     let Wait span x = Create (fun f -> fiber {
         let cancel = ref false
-        let connection = ref (Disposable.Create (fun () -> cancel := false))
+        let connection = ref (Disposable.Create (fun () -> cancel := true))
 
         yield! fiber {
             do! Fiber.Wait span
