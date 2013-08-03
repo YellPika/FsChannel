@@ -68,6 +68,26 @@ module Signal =
     /// choice of the specified list of signals.
     let Select signals = Seq.fold Choose Never signals
 
+    /// EXPERIMENTAL: Monadic bind for signals.
+    let Bind selector source = Create (fun f -> fiber {
+        let connection = ref (Disposable.Create id)
+        let sourceValue = ref None
+
+        let! temp = source.Connect (Some >> ((:=) sourceValue))
+        connection := temp
+
+        yield! (fiber {
+            while Option.isNone !sourceValue do
+                yield ()
+
+            let! temp = (selector !sourceValue).Connect f
+            connection := temp
+        })
+
+        return Disposable.Create (fun () ->
+            (!connection).Dispose ())
+    })
+
     /// Delays the communication of a signal by the specified time span.
     let Wait span x = Create (fun f -> fiber {
         let cancel = ref false
