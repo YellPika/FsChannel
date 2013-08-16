@@ -35,3 +35,6 @@ module Disposable =
 
     /// Disposes an IDisposable.
     let Dispose (source : #IDisposable) = source.Dispose ()
+
+    /// Creates an ITaskDisposable from an IDisposable.
+    let ToTaskDisposable = TaskDisposable.FromDisposable

@@ -67,7 +67,7 @@ module Task =
     let For selector (source : seq<_>) =
         let enum = source.GetEnumerator ()
         enum
-        |> TaskDisposable.FromDisposable
+        |> Disposable.ToTaskDisposable
         |> Using (fun _ -> While enum.MoveNext (Delay (fun () -> selector enum.Current)))
 
     /// Creates a task that immediately returns a value.
