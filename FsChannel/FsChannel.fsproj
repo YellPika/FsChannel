@@ -33,8 +33,9 @@
     <DocumentationFile>bin\Release\FsChannel.XML</DocumentationFile>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="Disposable.fs" />
     <Compile Include="Task.fs" />
+    <Compile Include="Disposable.fs" />
+    <Compile Include="Tasks.fs" />
     <Compile Include="Signal.fs" />
     <Compile Include="Channel.fs" />
   </ItemGroup>

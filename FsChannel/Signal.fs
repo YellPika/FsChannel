@@ -40,7 +40,7 @@ module Signal =
         Connect (selector >> handler) source)
 
     /// Creates a signal that represents the non-deterministic choice of two signals.
-    let Choose signal1 signal2 = Create (fun handler -> fiber {
+    let Choose signal1 signal2 = Create (fun handler -> task {
         let connection1 = ref (Disposable.Create id)
         let connection2 = ref (Disposable.Create id)
 
