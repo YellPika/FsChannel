@@ -17,26 +17,30 @@ module Signal =
     
     /// Registers a function to be invoked when the signal is activated.
     /// A disposable object is returned, which may be used to cancel the registration.
-    let Connect f (x : Signal<'a>) = x.Connect f
+    let Connect handler source = source.Connect handler
 
     /// Creates an event which computes the given function upon
     /// synchronization, and then behaves like the returned event.
-    let Delay f = Create (fun g -> Connect g (f ()))
+    let Delay source = Create (fun handler ->
+        let source' = source ()
+        Connect handler source')
 
     /// Creates a signal that always passes the specified value to subscribers.
-    let Always x = Create (fun f -> task {
-        f x
-        return Disposable.Create id
+    let Always value = Create (fun handler -> task {
+        handler value
+        return Disposable.Create ignore
     })
 
     /// A signal that never notifies its subscribers.
-    let Never<'a> : Signal<'a> = Create (fun _ -> Task.Return (Disposable.Create id))
+    let Never<'a> : Signal<'a> = Create (fun _ ->
+        Task.Return (Disposable.Create ignore))
 
     /// Wraps a post synchronization operation around the specified signal.
-    let Map f x = Create (fun g -> Connect (f >> g) x)
+    let Map selector source = Create (fun handler ->
+        Connect (selector >> handler) source)
 
     /// Creates a signal that represents the non-deterministic choice of two signals.
-    let Choose signal1 signal2 = Create (fun f -> task {
+    let Choose signal1 signal2 = Create (fun handler -> fiber {
         let connection1 = ref (Disposable.Create id)
         let connection2 = ref (Disposable.Create id)
 
@@ -44,19 +48,19 @@ module Signal =
 
         // Need to store the result in temp because we can't directly
         // assign to a reference cell using let!.
-        let! temp = signal1.Connect (fun x ->
+        let! temp = signal1.Connect (fun value ->
             // Connecting to signal1 could cause this callback to trigger
             // immediately, in which case we can forgo connecting to the second.
             ignoreSecond := true
 
             (!connection2).Dispose ()
-            f x)
+            handler value)
         connection1 := temp
 
         if not !ignoreSecond then
-            let! temp = signal2.Connect (fun x ->
+            let! temp = signal2.Connect (fun value ->
                 (!connection1).Dispose ()
-                f x)
+                handler value)
             connection2 := temp
 
         return Disposable.Create (fun () ->
@@ -89,7 +93,7 @@ module Signal =
     })
 
     /// Delays the communication of a signal by the specified time span.
-    let Wait span x = Create (fun f -> task {
+    let Wait span source = Create (fun handler -> task {
         let cancel = ref false
         let connection = ref (Disposable.Create (fun () -> cancel := true))
 
@@ -99,7 +103,7 @@ module Signal =
             // If the user cancelled the connection before
             // span elapsed, then we can ignore this.
             if not !cancel then
-                let! temp = Connect f x
+                let! temp = Connect handler source
                 connection := temp
         }
 
@@ -108,12 +112,11 @@ module Signal =
 
     /// Wraps an signal such that it will return None if the specified
     /// time span elapses before the signal is communicated.
-    let TimeOut span x = Choose (Map Some x) (Wait span (Always None))
+    let TimeOut span source = Choose (Map Some source) (Wait span (Always None))
 
-    /// Synchronizes the calling task with the specified signal.
     let Sync signal = task {
         let value = ref None
-        let! _ = signal.Connect (fun x -> value := Some x)
+        let! _ = signal.Connect (Some >> (:=) value)
 
         while Option.isNone !value do
             yield ()
