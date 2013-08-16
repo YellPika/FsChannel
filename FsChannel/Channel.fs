@@ -19,7 +19,7 @@ type Channel<'a> () =
 
     /// Creates a signal that, when synchronized,
     /// sends the specified value over the channel.
-    member this.Send value = Signal.Create (fun sender -> fiber {
+    member this.Send value = Signal.Create (fun sender -> task {
         match receivers.Count with
         | 0 -> return Enqueue (sender, value) senders
         | _ ->
@@ -31,7 +31,7 @@ type Channel<'a> () =
 
     /// Creates a signal that, when synchronized,
     /// receives a value from the channel.
-    member this.Receive = Signal.Create (fun receiver -> fiber {
+    member this.Receive = Signal.Create (fun receiver -> task {
         match senders.Count with
         | 0 -> return Enqueue receiver receivers
         | _ ->

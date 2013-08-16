@@ -7,7 +7,7 @@ open System
 type Signal<'a> = {
     /// Registers a function to be invoked when the signal is activated.
     /// A disposable object is returned, which may be used to cancel the registration.
-    Connect : ('a -> unit) -> Fiber<IDisposable>
+    Connect : ('a -> unit) -> Task<IDisposable>
 }
 
 /// Operations on signals.
@@ -24,19 +24,19 @@ module Signal =
     let Delay f = Create (fun g -> Connect g (f ()))
 
     /// Creates a signal that always passes the specified value to subscribers.
-    let Always x = Create (fun f -> fiber {
+    let Always x = Create (fun f -> task {
         f x
         return Disposable.Create id
     })
 
     /// A signal that never notifies its subscribers.
-    let Never<'a> : Signal<'a> = Create (fun _ -> Fiber.Return (Disposable.Create id))
+    let Never<'a> : Signal<'a> = Create (fun _ -> Task.Return (Disposable.Create id))
 
     /// Wraps a post synchronization operation around the specified signal.
     let Map f x = Create (fun g -> Connect (f >> g) x)
 
     /// Creates a signal that represents the non-deterministic choice of two signals.
-    let Choose signal1 signal2 = Create (fun f -> fiber {
+    let Choose signal1 signal2 = Create (fun f -> task {
         let connection1 = ref (Disposable.Create id)
         let connection2 = ref (Disposable.Create id)
 
@@ -69,14 +69,14 @@ module Signal =
     let Select signals = Seq.fold Choose Never signals
 
     /// EXPERIMENTAL: Monadic bind for signals.
-    let Bind selector source = Create (fun f -> fiber {
+    let Bind selector source = Create (fun f -> task {
         let connection = ref (Disposable.Create id)
         let sourceValue = ref None
 
         let! temp = source.Connect (Some >> ((:=) sourceValue))
         connection := temp
 
-        yield! (fiber {
+        yield! (task {
             while Option.isNone !sourceValue do
                 yield ()
 
@@ -89,12 +89,12 @@ module Signal =
     })
 
     /// Delays the communication of a signal by the specified time span.
-    let Wait span x = Create (fun f -> fiber {
+    let Wait span x = Create (fun f -> task {
         let cancel = ref false
         let connection = ref (Disposable.Create (fun () -> cancel := true))
 
-        yield! fiber {
-            do! Fiber.Wait span
+        yield! task {
+            do! Task.Wait span
 
             // If the user cancelled the connection before
             // span elapsed, then we can ignore this.
@@ -110,8 +110,8 @@ module Signal =
     /// time span elapses before the signal is communicated.
     let TimeOut span x = Choose (Map Some x) (Wait span (Always None))
 
-    /// Synchronizes the calling fiber with the specified signal.
-    let Sync signal = fiber {
+    /// Synchronizes the calling task with the specified signal.
+    let Sync signal = task {
         let value = ref None
         let! _ = signal.Connect (fun x -> value := Some x)
 
