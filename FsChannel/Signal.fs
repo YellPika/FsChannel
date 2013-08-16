@@ -114,6 +114,7 @@ module Signal =
     /// time span elapses before the signal is communicated.
     let TimeOut span source = Choose (Map Some source) (Wait span (Always None))
 
+    /// Synchronizes the calling fiber with the specified signal.
     let Sync signal = task {
         let value = ref None
         let! _ = signal.Connect (Some >> (:=) value)
