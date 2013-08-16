@@ -1,24 +1,24 @@
 # FsChannel
 
-An implementation of Go style fibers and channels in FSharp.
+An implementation of Go style tasks and channels in FSharp.
 
-## Fibers
+## Tasks
 
-Fibers (cooperative threads) are created using the `fiber`
-computation expression syntax.
-* `yield ()` pauses the current fiber gives control to the next available fiber.
-* `yield! f` concurrently starts the fiber `f`.
-* `Fiber.Run : Fiber<unit> -> unit` runs a fiber and does not return until that fiber completes execution.
-Like in Go, any fiber started using `yield!` will terminate when the main one terminates.
+Tasks (lightweight threads) are created using the `task` computation expression syntax.
+Tasks currently run cooperatively.
+* `yield ()` pauses the current task gives control to the next available task.
+* `yield! f` concurrently starts the task `f`.
+* `Task.Run : Task<unit> -> unit` runs a task and does not return until that
+  task and all its children (i.e., using `yield!`) complete execution.
 
 Example:
 
-    Fiber.Run (fiber {
+    Task.Run (task {
         printfn "Hello World"
         
         let doneCount = ref 0
         for i in [1 .. 10] do
-            yield! fiber {
+            yield! task {
                 printfn "%d" i
                 doneCount := !doneCount + 1
             }
@@ -49,18 +49,18 @@ Channels are represented by the `Channel<'a>` type. A channel has two members:
 * `Send : 'a -> Signal<unit>` sends a value over a channel.
 * `Receive : Signal<'a>` receives a value from a channel.
 Both members return instances of the `Signal<'a>` class. `Signal<'a>`s are analogous to events in CSP.
-* `Signal.Sync : Signal<'a> -> Fiber<'a>` causes a fiber to wait until a signal is invoked. For example,
+* `Signal.Sync : Signal<'a> -> Task<'a>` causes a task to wait until a signal is invoked. For example,
 `let! x = Signal.Sync myChannel.Receive` will block until a corresponding `do! Signal.Sync (myChannel.Send myValue)`
-is made on another fiber.
+is made on another task.
 * `Signal.Select : Signal<'a> list -> Signal<'a>` creates a new signal out of multiple signals. When the signal is
 synced, it will return the value of the first signal in the list that is invoked.
 
 Example:
 
-    Fiber.Run (fiber {
+    Task.Run (task {
         let channel = Channel<string> ()
         
-        yield! fiber {
+        yield! task {
             printfn "Before Send"
             do! Signal.Sync (channel.Send "Hello World!")
             printfn "After Send"
@@ -81,7 +81,7 @@ Example:
 
 ## Future Work
 There are a few items on the todo list:
-* **Support For Threads**: Right now, `Channel`s only work with `Fiber`s. It would be nice if they could be used with
+* **Support For Threads**: Right now, `Channel`s only work with `Task`s. It would be nice if they could be used with
 regular threads as well.
 * **Other Threading Constructs**: Channels serve as a good base for many other synchronization primitives. They should
 be working their way into the library at some point in the future.
