@@ -87,7 +87,7 @@ module Task =
     /// until the specified timespan has elapsed.
     let Wait (span : TimeSpan) = Task (fun () -> Wait (span, Zero))
 
-    /// Fully executes a list of tasks.
+    /// Fully executes a task in a single thread.
     let Run task =
         let wait (span : TimeSpan) = Delay <| fun () ->
             let start = DateTime.Now
@@ -105,6 +105,26 @@ module Task =
             | x::xs -> run (evaluate xs (Invoke x))
 
         run [task]
+
+    /// Fully executes a task over multiple threads.
+    let RunAsync task =
+        let rec toAsync task = async {
+            match Invoke task with
+            | Done () -> return ()
+            | Fork (x, y) ->
+                let! x = Async.StartChild (toAsync x)
+                let! y = Async.StartChild (toAsync y)
+                do! x
+                do! y
+            | Yield x ->
+                do! Async.SwitchToThreadPool ()
+                do! toAsync x
+            | Wait (t, x) ->
+                do! Async.Sleep (int t.TotalMilliseconds)
+                do! toAsync x
+        }
+
+        Async.RunSynchronously (toAsync task)
 
 [<AutoOpen>]
 module TaskComputation =
