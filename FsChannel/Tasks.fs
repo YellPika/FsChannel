@@ -23,6 +23,7 @@ module Task =
         | Done value -> Invoke (selector value)
         | Fork (task, next) -> Fork (task, Bind selector next)
         | Yield next -> Yield (Bind selector next)
+        | Wait (span, next) -> Wait (span, Bind selector next)
 
     /// Sequentially composes two tasks, discarding
     /// the value produced by the first.
@@ -42,8 +43,9 @@ module Task =
         try
             match Invoke source with
             | Done value -> Done value
-            | Fork (next, current) -> Fork (next, TryWith handler current)
+            | Fork (task, next) -> Fork (task, TryWith handler next)
             | Yield current -> Yield (TryWith handler current)
+            | Wait (span, next) -> Wait (span, TryWith handler next)
         with ex -> Invoke (handler ex)
 
     /// Specifies an action to take when a task completes,
@@ -75,25 +77,28 @@ module Task =
     
     /// Creates a task that immediately queues
     /// the execution of another task.
-    let Fork task = Task (fun () -> Fork (task, Done ()))
+    let Fork task = Task (fun () -> Fork (task, Zero))
 
     /// Creates a task that immediately halts execution and
     /// passes control to the next available task.
-    let Yield = Task (Done >> Yield)
+    let Yield = Task (fun () -> Yield Zero)
 
     /// Creates a task that passes control to other tasks
     /// until the specified timespan has elapsed.
-    let Wait (span : TimeSpan) = Delay (fun () ->
-        let start = DateTime.Now
-        While (fun () -> DateTime.Now - start < span)
-            Yield)
+    let Wait (span : TimeSpan) = Task (fun () -> Wait (span, Zero))
 
     /// Fully executes a list of tasks.
     let Run task =
+        let wait (span : TimeSpan) = Delay <| fun () ->
+            let start = DateTime.Now
+            While (fun () -> DateTime.Now - start < span)
+                Yield
+
         let rec evaluate xs = function
             | Done () -> xs
-            | Fork (a, b) -> b :: xs @ [a]
-            | Yield a -> xs @ [a]
+            | Fork (x, y) -> x :: xs @ [y]
+            | Yield x -> xs @ [x]
+            | Wait (t, x) -> Combine (wait t) x :: xs
 
         let rec run = function
             | [] -> ()

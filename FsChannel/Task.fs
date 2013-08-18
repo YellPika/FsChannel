@@ -1,5 +1,7 @@
 ﻿namespace FsChannel
 
+open System
+
 /// Represents a lightweight cooperative thread of execution.
 type [<NoComparison; NoEquality>]
     Task<'a> =
@@ -13,3 +15,5 @@ and [<NoComparison; NoEquality>]
     | Fork of Task<unit> * Task<'a>
     /// Temporarily halt execution and hand control over to the next available task.
     | Yield of Task<'a>
+    /// Temporarily halt execution for the specified amount of time.
+    | Wait of TimeSpan * Task<'a>
