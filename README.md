@@ -82,5 +82,5 @@ Example:
 ## Future Work
 * **Other Threading Constructs**: Channels serve as a good base for many other synchronization primitives. They should
 be working their way into the library at some point in the future.
-* **C++ Port**: A C++ implementation of this library most likely be much faster. Boost's coroutine library makes it
+* **C++ Port**: A C++ implementation of this library should be much faster. Boost's coroutine library makes it
 possible to implement cooperative multitasking.
