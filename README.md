@@ -5,11 +5,11 @@ An implementation of Go style tasks and channels in FSharp.
 ## Tasks
 
 Tasks (lightweight threads) are created using the `task` computation expression syntax.
-Tasks currently run cooperatively.
+Tasks may run cooperatively or preemptively.
 * `yield ()` pauses the current task gives control to the next available task.
 * `yield! f` concurrently starts the task `f`.
-* `Task.Run : Task<unit> -> unit` runs a task and does not return until that
-  task and all its children (i.e., using `yield!`) complete execution.
+* `Task.Run : Task<unit> -> unit` and `Task.RunAsync : Task<unit> -> unit` run a task and do  not return until that
+  task and all of its children (i.e., started using `yield!`) complete execution.
 
 Example:
 
@@ -57,7 +57,7 @@ synced, it will return the value of the first signal in the list that is invoked
 
 Example:
 
-    Task.Run (task {
+    Task.RunAsync (task {
         let channel = Channel<string> ()
         
         yield! task {
@@ -72,7 +72,7 @@ Example:
         printfn "After Receive"
     })
 
-    // Output:
+    // Possible Output:
     // Before Receive
     // Before Send
     // After Send
@@ -80,8 +80,7 @@ Example:
     // After Receive
 
 ## Future Work
-There are a few items on the todo list:
-* **Support For Threads**: Right now, `Channel`s only work with `Task`s. It would be nice if they could be used with
-regular threads as well.
 * **Other Threading Constructs**: Channels serve as a good base for many other synchronization primitives. They should
 be working their way into the library at some point in the future.
+* **C++ Port**: A C++ implementation of this library most likely be much faster. Boost's coroutine library makes it
+possible to implement cooperative multitasking.
