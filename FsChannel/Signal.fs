@@ -72,7 +72,7 @@ module Signal =
             | output -> return output
           }
           Block = fun (s, f) -> task {
-            yield! signal1.Block (s, f)
+            do! signal1.Block (s, f)
             return! signal2.Block (s, f)
           }
         }
@@ -90,7 +90,7 @@ module Signal =
             output := result
 
         if Option.isNone !output then
-            yield! signal.Block (ref SignalStatus.Waiting, (Some >> (:=) output))
+            do! signal.Block (ref SignalStatus.Waiting, Some >> (:=) output)
 
         while Option.isNone !output do
             yield ()

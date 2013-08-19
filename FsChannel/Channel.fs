@@ -46,7 +46,6 @@ type Channel<'a> private (lock) =
     /// Creates a signal that, when synchronized,
     /// sends the specified value over the channel.
     member this.Send value = {
-        // TODO: Ensure Poll is thread safe.
         Poll = fun () -> receivers.Count <> 0
         Commit = task {
             use! lock = lock.Acquire
