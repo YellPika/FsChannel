@@ -2,12 +2,6 @@
 
 open System
 
-/// Defines a method to release allocated resources within a task.
-type ITaskDisposable =
-    /// Performs application-defined tasks associated with
-    /// freeing, releasing, or resetting unmanaged resources.
-    abstract Dispose : Task<unit>
-
 /// Operations on ITaskDisposables.
 module TaskDisposable =
     /// Creates an ITaskDisposable that calls

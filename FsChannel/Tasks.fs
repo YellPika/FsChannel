@@ -1,6 +1,8 @@
 ﻿namespace FsChannel
 
 open System
+open System.Collections.Generic
+open System.Threading
 
 /// Operations on tasks.
 module Task =
@@ -23,6 +25,8 @@ module Task =
         | Done value -> Invoke (selector value)
         | Fork (task, next) -> Fork (task, Bind selector next)
         | Yield next -> Yield (Bind selector next)
+        | Wait (span, next) -> Wait (span, Bind selector next)
+        | Lock (assign, next) -> Lock (assign, Bind selector next)
 
     /// Sequentially composes two tasks, discarding
     /// the value produced by the first.
@@ -42,15 +46,17 @@ module Task =
         try
             match Invoke source with
             | Done value -> Done value
-            | Fork (next, current) -> Fork (next, TryWith handler current)
+            | Fork (task, next) -> Fork (task, TryWith handler next)
             | Yield current -> Yield (TryWith handler current)
+            | Wait (span, next) -> Wait (span, TryWith handler next)
+            | Lock (assign, next) -> Lock (assign, TryWith handler next)
         with ex -> Invoke (handler ex)
 
     /// Specifies an action to take when a task completes,
     /// regardless of whether it threw an exception.
     let TryFinally handler =
-        Bind (fun x -> Map (fun () -> x) handler)
-        >> TryWith (fun ex -> Map (fun () -> raise ex) handler)
+        TryWith (fun x -> handler |> Map (fun () -> raise x))
+        >> Bind (fun x -> handler |> Map (fun () -> x))
     
     /// Executes a task with a disposable argument,
     /// and ensures the argument is disposed when the task completes.
@@ -75,31 +81,102 @@ module Task =
     
     /// Creates a task that immediately queues
     /// the execution of another task.
-    let Fork task = Task (fun () -> Fork (task, Done ()))
+    let Fork task = Task (fun () -> Fork (task, Zero))
 
     /// Creates a task that immediately halts execution and
     /// passes control to the next available task.
-    let Yield = Task (Done >> Yield)
+    let Yield = Task (fun () -> Yield Zero)
 
     /// Creates a task that passes control to other tasks
     /// until the specified timespan has elapsed.
-    let Wait (span : TimeSpan) = Delay (fun () ->
-        let start = DateTime.Now
-        While (fun () -> DateTime.Now - start < span)
-            Yield)
+    let Wait (span : TimeSpan) = Task (fun () -> Wait (span, Zero))
 
-    /// Fully executes a list of tasks.
+    /// Creates a task that returns a newly created lock object.
+    let Lock = Task (fun () ->
+        let output = ref Unchecked.defaultof<ILock>
+        let next = Delay (fun () -> Return !output)
+        Lock ((:=) output, next))
+
+    /// Fully executes a task in a single thread.
     let Run task =
+        let wait (span : TimeSpan) = Delay <| fun () ->
+            let start = DateTime.Now
+            While (fun () -> DateTime.Now - start < span)
+                Yield
+
+        let createLock () =
+            let queue = Queue<_> ()
+
+            let unlock = {
+                new ITaskDisposable with
+                    member this.Dispose =
+                        Delay (Return << ignore << queue.Dequeue)
+            }
+
+            { new ILock with
+                member this.Acquire = Delay <| fun () ->
+                    let id = obj ()
+                    queue.Enqueue id
+                    
+                    Combine
+                        (While (queue.Peek >> (<>) id)
+                            Yield)
+                        (Return unlock)
+            }
+
         let rec evaluate xs = function
             | Done () -> xs
-            | Fork (a, b) -> b :: xs @ [a]
-            | Yield a -> xs @ [a]
+            | Fork (x, y) -> x :: xs @ [y]
+            | Yield x -> xs @ [x]
+            | Wait (t, x) -> Combine (wait t) x :: xs
+            | Lock (a, x) ->
+                a (createLock ())
+                x :: xs
 
         let rec run = function
             | [] -> ()
             | x::xs -> run (evaluate xs (Invoke x))
 
         run [task]
+
+    /// Fully executes a task over multiple threads.
+    let RunAsync task =
+        let createLock () =
+            let semaphore = new SemaphoreSlim 1
+
+            let unlock = {
+                new ITaskDisposable with
+                    member this.Dispose =
+                        Delay (semaphore.Release
+                               >> ignore
+                               >> Return)
+            }
+
+            { new ILock with
+                member this.Acquire = Delay <| fun () ->
+                    ignore (semaphore.Wait ())
+                    Return unlock
+            }
+
+        let rec toAsync task = async {
+            match Invoke task with
+            | Done () -> return ()
+            | Fork (x, y) ->
+                do! [toAsync x; toAsync y]
+                    |> Async.Parallel
+                    |> Async.Ignore
+            | Yield x ->
+                do! Async.SwitchToThreadPool ()
+                do! toAsync x
+            | Wait (t, x) ->
+                do! Async.Sleep (int t.TotalMilliseconds)
+                do! toAsync x
+            | Lock (a, x) ->
+                a (createLock ())
+                do! toAsync x
+        }
+
+        Async.RunSynchronously (toAsync task)
 
 [<AutoOpen>]
 module TaskComputation =

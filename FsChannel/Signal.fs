@@ -5,130 +5,90 @@ open System
 /// An abstract representation of a synchronous operation.
 [<NoComparison; NoEquality>]
 type Signal<'a> = {
-    /// Registers a function to be invoked when the signal is activated.
-    /// A disposable object is returned, which may be used to cancel the registration.
-    Connect : ('a -> unit) -> Task<IDisposable>
+    Poll : unit -> bool
+    Commit : Task<'a option>
+    Block : int ref * ('a -> unit) -> Task<unit>
 }
 
 /// Operations on signals.
 module Signal =
     let private random = Random ()
 
-    /// Creates a signal using the specified function as the connection function.
-    let Create connect = { Connect = connect }
+    [<Literal>]
+    let Waiting = 0
     
-    /// Registers a function to be invoked when the signal is activated.
-    /// A disposable object is returned, which may be used to cancel the registration.
-    let Connect handler source = source.Connect handler
+    [<Literal>]
+    let Claimed = 1
+    
+    [<Literal>]
+    let Synced = 2
 
     /// Creates an event which computes the given function upon
     /// synchronization, and then behaves like the returned event.
-    let Delay source = Create (fun handler ->
-        let source' = source ()
-        Connect handler source')
+    let Delay source =
+        let source = lazy (source ())
+        { Poll = fun () -> source.Value.Poll ()
+          Commit = Task.Delay (fun () -> source.Value.Commit)
+          Block = fun x -> source.Value.Block x }
 
     /// Creates a signal that always passes the specified value to subscribers.
-    let Always value = Create (fun handler -> task {
-        handler value
-        return Disposable.Create ignore
-    })
+    let Always value = {
+        Poll = fun () -> true
+        Commit = Task.Return (Some value)
+        Block = ignore >> Task.Return
+    }
 
     /// A signal that never notifies its subscribers.
-    let Never<'a> : Signal<'a> = Create (fun _ ->
-        Task.Return (Disposable.Create ignore))
+    let Never<'a> : Signal<'a> = {
+        Poll = fun () -> false
+        Commit = Task.Return None
+        Block = ignore >> Task.Return
+    }
 
     /// Wraps a post synchronization operation around the specified signal.
-    let Map selector source = Create (fun handler ->
-        Connect (selector >> handler) source)
+    let Map selector source = {
+        Poll = source.Poll
+        Commit = Task.Map (Option.map selector) source.Commit
+        Block = fun (s, f) -> source.Block (s, selector >> f)
+    }
 
     /// Creates a signal that represents the non-deterministic choice of two signals.
-    let Choose signal1 signal2 = Create (fun handler -> task {
-        // Randomize the choices.
-        let signal1, signal2 = 
+    let Choose signal1 signal2 =
+        let signal1, signal2 =
             match random.Next (0, 2) with
-            | 0 -> signal1, signal2
-            | _ -> signal2, signal1
+            | 0 -> signal2, signal1
+            | _ -> signal1, signal2
 
-        let connection1 = ref (Disposable.Create id)
-        let connection2 = ref (Disposable.Create id)
-
-        let ignoreSecond = ref false
-
-        // Need to store the result in temp because we can't directly
-        // assign to a reference cell using let!.
-        let! temp = signal1.Connect (fun value ->
-            // Connecting to signal1 could cause this callback to trigger
-            // immediately, in which case we can forgo connecting to the second.
-            ignoreSecond := true
-
-            (!connection2).Dispose ()
-            handler value)
-        connection1 := temp
-
-        if not !ignoreSecond then
-            let! temp = signal2.Connect (fun value ->
-                (!connection1).Dispose ()
-                handler value)
-            connection2 := temp
-
-        return Disposable.Create (fun () ->
-            (!connection1).Dispose ()
-            (!connection2).Dispose ())
-    })
+        { Poll = fun () -> signal1.Poll () || signal2.Poll ()
+          Commit = task {
+            let! signal1 = signal1.Commit
+            match signal1 with
+            | None -> return! signal2.Commit
+            | output -> return output
+          }
+          Block = fun (s, f) -> task {
+            yield! signal1.Block (s, f)
+            return! signal2.Block (s, f)
+          }
+        }
 
     /// Creates a signal that represents the non-deterministic
     /// choice of the specified list of signals.
     let Select signals = Seq.fold Choose Never signals
 
-    /// EXPERIMENTAL: Monadic bind for signals.
-    let Bind selector source = Create (fun f -> task {
-        let connection = ref (Disposable.Create id)
-        let sourceValue = ref None
-
-        let! temp = source.Connect (Some >> ((:=) sourceValue))
-        connection := temp
-
-        yield! (task {
-            while Option.isNone !sourceValue do
-                yield ()
-
-            let! temp = (selector !sourceValue).Connect f
-            connection := temp
-        })
-
-        return Disposable.Create (fun () ->
-            (!connection).Dispose ())
-    })
-
-    /// Delays the communication of a signal by the specified time span.
-    let Wait span source = Create (fun handler -> task {
-        let cancel = ref false
-        let connection = ref (Disposable.Create (fun () -> cancel := true))
-
-        yield! task {
-            do! Task.Wait span
-
-            // If the user cancelled the connection before
-            // span elapsed, then we can ignore this.
-            if not !cancel then
-                let! temp = Connect handler source
-                connection := temp
-        }
-
-        return Disposable.Create (fun () -> (!connection).Dispose ())        
-    })
-
-    /// Wraps an signal such that it will return None if the specified
-    /// time span elapses before the signal is communicated.
-    let TimeOut span source = Choose (Map Some source) (Wait span (Always None))
-
     /// Synchronizes the calling fiber with the specified signal.
     let Sync signal = task {
-        let value = ref None
-        let! _ = signal.Connect (Some >> (:=) value)
+        let output = ref None
 
-        while Option.isNone !value do
+        if signal.Poll () then
+            let! result = signal.Commit
+            output := result
+
+        if Option.isNone !output then
+            yield! signal.Block (ref Waiting, (Some >> (:=) output))
+
+        while Option.isNone !output do
             yield ()
 
-        return Option.get !value
+        return Option.get !output
     }
