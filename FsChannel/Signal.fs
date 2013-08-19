@@ -10,18 +10,23 @@ type Signal<'a> = {
     Block : int ref * ('a -> unit) -> Task<unit>
 }
 
+/// Constants representing signal statuses.
+module SignalStatus =
+    /// Indicates that a signal is waiting to be synced.
+    [<Literal>]
+    let Waiting = 0
+
+    /// Indicates that a signal is in the middle of synchronization.
+    [<Literal>]
+    let Claimed = 1
+
+    /// Indicates that a signal has been synced.
+    [<Literal>]
+    let Synced = 2
+
 /// Operations on signals.
 module Signal =
     let private random = Random ()
-
-    [<Literal>]
-    let Waiting = 0
-    
-    [<Literal>]
-    let Claimed = 1
-    
-    [<Literal>]
-    let Synced = 2
 
     /// Creates an event which computes the given function upon
     /// synchronization, and then behaves like the returned event.
@@ -85,7 +90,7 @@ module Signal =
             output := result
 
         if Option.isNone !output then
-            yield! signal.Block (ref Waiting, (Some >> (:=) output))
+            yield! signal.Block (ref SignalStatus.Waiting, (Some >> (:=) output))
 
         while Option.isNone !output do
             yield ()

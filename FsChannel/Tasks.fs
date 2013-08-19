@@ -201,4 +201,5 @@ module TaskComputation =
         member this.While (p, x) = Task.While p x
         member this.For (xs : seq<_>, f) = Task.For f xs
 
+    /// Builds a task using computation expression syntax.
     let task = TaskBuilder ()

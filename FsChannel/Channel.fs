@@ -4,6 +4,7 @@
 
 open System
 open System.Threading
+open SignalStatus
 
 /// Represents a synchronous channel.
 type Channel<'a> private (lock) =
@@ -54,9 +55,9 @@ type Channel<'a> private (lock) =
                 match Dequeue receivers with
                 | Some (state, receiver) ->
                     let rec sync = task {
-                        match Interlocked.CompareExchange (state, Signal.Synced, Signal.Waiting) with
-                        | Signal.Synced -> return! commit
-                        | Signal.Waiting ->
+                        match Interlocked.CompareExchange (state, Synced, Waiting) with
+                        | Synced -> return! commit
+                        | Waiting ->
                             receiver value
                             return Some ()
                         | _ ->
@@ -77,19 +78,16 @@ type Channel<'a> private (lock) =
                 match DequeueMatch (fun (b, _) -> not (obj.ReferenceEquals (a, b))) receivers with
                 | Some (b, receiver) ->
                     let rec sync = task {
-                        match Interlocked.CompareExchange (a, Signal.Claimed, Signal.Waiting) with
-                        | Signal.Waiting ->
-                            let result = Interlocked.CompareExchange (b, Signal.Synced, Signal.Waiting)
+                        match Interlocked.CompareExchange (a, Claimed, Waiting) with
+                        | Waiting ->
+                            let result = Interlocked.CompareExchange (b, Synced, Waiting)
                     
-                            let a' =
-                                match result with
-                                | Signal.Waiting -> Signal.Synced
-                                | _ -> Signal.Waiting
+                            let a' = if result = Waiting then Synced else Waiting
                             ignore (Interlocked.Exchange (a, a'))
 
                             match result with
-                            | Signal.Synced -> return! block
-                            | Signal.Claimed -> return! sync
+                            | Synced -> return! block
+                            | Claimed -> return! sync
                             | _ ->
                                 sender ()
                                 receiver value
@@ -115,9 +113,9 @@ type Channel<'a> private (lock) =
                 match Dequeue senders with
                 | Some (state, sender, value) ->
                     let rec sync = task {
-                        match Interlocked.CompareExchange (state, Signal.Synced, Signal.Waiting) with
-                        | Signal.Synced -> return! commit
-                        | Signal.Waiting ->
+                        match Interlocked.CompareExchange (state, Synced, Waiting) with
+                        | Synced -> return! commit
+                        | Waiting ->
                             sender ()
                             return Some value
                         | _ ->
@@ -138,19 +136,16 @@ type Channel<'a> private (lock) =
                 match DequeueMatch (fun (b, _, _) -> not (obj.ReferenceEquals (a, b))) senders with
                 | Some (b, sender, value) ->
                     let rec sync = task {
-                        match Interlocked.CompareExchange (a, Signal.Claimed, Signal.Waiting) with
-                        | Signal.Waiting ->
-                            let result = Interlocked.CompareExchange (b, Signal.Synced, Signal.Waiting)
+                        match Interlocked.CompareExchange (a, Claimed, Waiting) with
+                        | Waiting ->
+                            let result = Interlocked.CompareExchange (b, Synced, Waiting)
                     
-                            let a' =
-                                match result with
-                                | Signal.Waiting -> Signal.Synced
-                                | _ -> Signal.Waiting
+                            let a' = if result = Waiting then Synced else Waiting
                             ignore (Interlocked.Exchange (a, a'))
 
                             match result with
-                            | Signal.Synced -> return! block
-                            | Signal.Claimed -> return! sync
+                            | Synced -> return! block
+                            | Claimed -> return! sync
                             | _ ->
                                 sender ()
                                 receiver value

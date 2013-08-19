@@ -112,4 +112,4 @@ let asyncTest = task {
     })
 }
 
-Task.RunAsync asyncTest
+Task.RunAsync channelTest3
