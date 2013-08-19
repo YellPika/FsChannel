@@ -142,7 +142,7 @@ module Task =
     /// Fully executes a task over multiple threads.
     let RunAsync task =
         let createLock () =
-            let semaphore = new SemaphoreSlim (1, 1)
+            let semaphore = new SemaphoreSlim 1
 
             let unlock = {
                 new ITaskDisposable with
