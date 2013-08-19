@@ -162,18 +162,16 @@ module Task =
             match Invoke task with
             | Done () -> return ()
             | Fork (x, y) ->
-                do! [toAsync x; toAsync y]
-                    |> Async.Parallel
-                    |> Async.Ignore
-            | Yield x ->
-                do! Async.SwitchToThreadPool ()
-                do! toAsync x
+                let! child = Async.StartChild (toAsync x)
+                do! toAsync y
+                return! child
+            | Yield x -> return! toAsync x
             | Wait (t, x) ->
                 do! Async.Sleep (int t.TotalMilliseconds)
-                do! toAsync x
+                return! toAsync x
             | Lock (a, x) ->
                 a (createLock ())
-                do! toAsync x
+                return! toAsync x
         }
 
         Async.RunSynchronously (toAsync task)
